@@ -29,6 +29,24 @@ if ! command -v python3 &>/dev/null; then
 fi
 info "Python 3 found: $(python3 --version)"
 
+# ── Ensure Python 3.12 (pygame wheels are guaranteed for 3.12) ─────────────────
+ensure_python312() {
+  if command -v python3.12 &>/dev/null; then
+    info "Python 3.12 found: $(python3.12 --version)"
+    return
+  fi
+  warn "Python 3.12 not found — installing..."
+  if [[ "$PLATFORM" == "macos" ]] && command -v brew &>/dev/null; then
+    brew install python@3.12
+  elif [[ "$PLATFORM" == "linux" ]] && command -v apt-get &>/dev/null; then
+    sudo apt-get install -y python3.12
+  else
+    error "Could not install Python 3.12 automatically. Install it from https://python.org and re-run."
+  fi
+}
+ensure_python312
+PIPX_PYTHON="python3.12"
+
 # ── pipx ───────────────────────────────────────────────────────────────────────
 ensure_pipx() {
   if command -v pipx &>/dev/null; then
@@ -55,7 +73,7 @@ if pipx list 2>/dev/null | grep -q "package fah"; then
   pipx upgrade fah --pip-args="--prefer-binary"
 else
   info "Installing fah via pipx..."
-  pipx install --pip-args="--prefer-binary" "git+${REPO}.git"
+  pipx install --python "$PIPX_PYTHON" --pip-args="--prefer-binary" "git+${REPO}.git"
 fi
 
 # ── Config directory ───────────────────────────────────────────────────────────
