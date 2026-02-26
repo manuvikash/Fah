@@ -13,7 +13,7 @@ if [ -n "$SCRIPT_SOURCE" ] && [ -f "$SCRIPT_SOURCE" ] && \
    [ -f "$(dirname "$SCRIPT_SOURCE")/pyproject.toml" ]; then
     PROJECT_DIR="$(cd "$(dirname "$SCRIPT_SOURCE")" && pwd)"
 else
-    # Running via curl | bash — clone the repo
+    # Running via curl | bash - clone the repo
     PROJECT_DIR="$HOME/.local/share/fah"
     if ! command -v git &>/dev/null; then
         echo "Error: git is required. Install git and retry."
@@ -61,7 +61,7 @@ if [ ! -f "$CONFIG_DIR/config.yaml" ]; then
     cp config.yaml "$CONFIG_DIR/"
     echo "Config copied to $CONFIG_DIR/config.yaml"
 else
-    echo "Config already exists at $CONFIG_DIR/config.yaml — skipping"
+    echo "Config already exists at $CONFIG_DIR/config.yaml - skipping"
 fi
 
 if [ ! -f "$CONFIG_DIR/fah.mp3" ] && [ -f fah.mp3 ]; then

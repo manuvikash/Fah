@@ -32,18 +32,19 @@ irm https://raw.githubusercontent.com/manuvikash/Fah/main/install.ps1 | iex
 1. **Clone or download this repository**
 
 2. **Install Python dependencies:**
-   ```bash
-   pip install -r requirements.txt
-   ```
-   
-   Or install individually:
-   ```bash
-   pip install pynput pygame pyyaml
-   ```
+  ```bash
+  pip install -r requirements.txt
+  ```
+  Or install individually:
+  ```bash
+  pip install pynput pyyaml
+  ```
 
-3. **Add custom audio file(optional):**
-   - Place your `fah.mp3` file in the same directory as the script
-   - Or update `config.yaml` to point to your audio file location
+3. **Add custom audio file (optional):**
+  - After installation the configuration directory is:
+    - Windows: `%APPDATA%\\fah`
+    - macOS/Linux: `~/.config/fah`
+  - Place your `fah.mp3` file in that config directory, or update `config.yaml` to point to your audio file location
 
 4. **Configure your keybind** (see Configuration section below)
 
@@ -126,7 +127,18 @@ Press `Ctrl+C` to stop the script.
 start_windows.bat
 ```
 
-To stop:
+This launches `fah` using `pythonw.exe` (no console window). To stop the running process safely:
+
+```cmd
+rem List pythonw processes and PIDs
+tasklist /FI "IMAGENAME eq pythonw.exe"
+
+rem Then terminate the specific PID
+taskkill /PID <pid>
+```
+
+If you intentionally want to force-stop all headless Python processes (may affect other apps):
+
 ```cmd
 taskkill /F /IM pythonw.exe
 ```
@@ -136,14 +148,18 @@ taskkill /F /IM pythonw.exe
 ./start_mac.sh
 ```
 
-To stop:
+`start_mac.sh` launches `fah` with `nohup` and writes the process id to `.fah.pid` in the project directory. To stop the instance started by the script:
+
 ```bash
-pkill -f audio_hotkey.py
+kill $(cat .fah.pid)
+rm .fah.pid
 ```
 
-Or using the saved PID:
+Fallback options if you didn't use the PID file:
+
 ```bash
-kill $(cat .audio_hotkey.pid)
+pkill -f fah
+pkill -f audio_hotkey.py
 ```
 
 ## Auto-Start on Boot
@@ -236,8 +252,10 @@ On Windows, no special permissions are typically required. If you encounter issu
 ## Troubleshooting
 
 ### Audio file not found
-- Ensure `fah.mp3` is in the same directory as `audio_hotkey.py`
-- Or specify the full path in `config.yaml`
+- Ensure `fah.mp3` is placed in the configuration directory after installation:
+  - Windows: `%APPDATA%\\fah`
+  - macOS/Linux: `~/.config/fah`
+  Or specify the full path in `config.yaml`
 
 ### Hotkey not working
 - Check that your keybind doesn't conflict with other applications
@@ -251,20 +269,35 @@ On Windows, no special permissions are typically required. If you encounter issu
 
 ### Can't stop background process
 
-**Windows:**
+If you can't stop the background process, use the platform-specific steps below.
+
+**Windows (find PID then kill):**
+```cmd
+tasklist /FI "IMAGENAME eq pythonw.exe"
+taskkill /PID <pid>
+```
+
+**Windows (force all headless Python processes - use with caution):**
 ```cmd
 taskkill /F /IM pythonw.exe
 ```
 
-**macOS/Linux:**
+**macOS/Linux (PID file created by `start_mac.sh`):**
 ```bash
+kill $(cat .fah.pid)
+rm .fah.pid
+```
+
+**macOS/Linux (fallback):**
+```bash
+pkill -f fah
 pkill -f audio_hotkey.py
 ```
 
 ## How It Works
 
 1. The script loads your configuration from `config.yaml`
-2. It initializes pygame mixer for audio playback
+2. It resolves an available system audio player command and uses a subprocess to play the audio (no external audio library required)
 3. It sets up a global keyboard listener using pynput
 4. When your configured keybind is pressed, it plays the audio file
 5. Each keypress plays from the start (overlapping audio is allowed)

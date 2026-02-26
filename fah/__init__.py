@@ -9,8 +9,15 @@ import sys
 import yaml
 import platform
 import subprocess
+import threading
 from pathlib import Path
 from pynput import keyboard
+
+# pythonw.exe sets stdout/stderr to None -- redirect to devnull to avoid crashes
+if sys.stdout is None:
+    sys.stdout = open(os.devnull, "w")
+if sys.stderr is None:
+    sys.stderr = open(os.devnull, "w")
 
 _SYSTEM = platform.system()
 
@@ -19,6 +26,26 @@ if _SYSTEM == "Windows":
     CONFIG_DIR = Path(os.environ.get("APPDATA", Path.home())) / "fah"
 else:
     CONFIG_DIR = Path.home() / ".config" / "fah"
+
+# -- Windows audio via winmm.dll MCI (no subprocess, no window flash) ----------
+if _SYSTEM == "Windows":
+    import ctypes
+
+    _winmm = ctypes.windll.winmm
+    _mciSend = _winmm.mciSendStringW
+    _mci_counter = 0
+    _mci_lock = threading.Lock()
+
+    def _win_play(filepath):
+        """Play an audio file via MCI. Blocks until playback finishes."""
+        global _mci_counter
+        with _mci_lock:
+            _mci_counter += 1
+            alias = f"fah{_mci_counter}"
+        safe_path = filepath.replace('"', '')
+        _mciSend(f'open "{safe_path}" type mpegvideo alias {alias}', None, 0, None)
+        _mciSend(f"play {alias} wait", None, 0, None)
+        _mciSend(f"close {alias}", None, 0, None)
 
 
 class AudioHotkey:
@@ -29,7 +56,7 @@ class AudioHotkey:
         self.parse_keybind()
 
     def load_config(self):
-        """Load configuration from ~/.config/fah/config.yaml"""
+        """Load configuration from the platform config directory"""
         config_path = CONFIG_DIR / "config.yaml"
         try:
             with open(config_path, "r") as f:
@@ -37,7 +64,7 @@ class AudioHotkey:
             return config
         except FileNotFoundError:
             print(f"Error: Configuration file not found at '{config_path}'")
-            print(f"Run the install script again to restore defaults.")
+            print("Run the install script again to restore defaults.")
             sys.exit(1)
         except yaml.YAMLError as e:
             print(f"Error parsing configuration file: {e}")
@@ -56,32 +83,21 @@ class AudioHotkey:
             sys.exit(1)
 
         self.audio_file = audio_file
-        self.audio_cmd = self._find_audio_player()
+        self._linux_cmd = self._find_linux_player() if _SYSTEM == "Linux" else None
         print(f"Audio file loaded: {audio_file}")
 
-    def _find_audio_player(self):
-        """Return the command list used to play a file on this platform"""
-        if _SYSTEM == "Darwin":
-            return ["afplay"]  # always present on macOS
-        if _SYSTEM == "Windows":
-            # PowerShell MediaPlayer — no extra installs, supports MP3
-            return [
-                "powershell", "-noprofile", "-windowstyle", "hidden", "-c",
-                "Add-Type -AssemblyName presentationCore;"
-                "$m=[Windows.Media.MediaPlayer]::new();"
-                "$m.Open([uri]::new($args[0]));"
-                "$m.Play();"
-                "Start-Sleep -s 60",
-            ]
-        # Linux: first available player wins
+    def _find_linux_player(self):
+        """Return a command list for playing audio on Linux."""
         for player, extra in [
             ("paplay", []),
-            ("aplay",  []),
+            ("aplay", []),
             ("ffplay", ["-nodisp", "-autoexit"]),
             ("mpg123", []),
-            ("mpv",    ["--no-video"]),
+            ("mpv", ["--no-video"]),
         ]:
-            if subprocess.run(["which", player], capture_output=True).returncode == 0:
+            if subprocess.run(
+                ["which", player], capture_output=True
+            ).returncode == 0:
                 return [player] + extra
         print("Warning: no audio player found (install paplay, aplay, or ffplay)")
         return None
@@ -92,7 +108,6 @@ class AudioHotkey:
         modifiers = keybind_config.get("modifiers", [])
         key = keybind_config.get("key", "f")
 
-        # Map config modifier names to pynput hotkey string tokens
         modifier_token_map = {
             "ctrl": "<ctrl>",
             "alt": "<alt>",
@@ -101,7 +116,6 @@ class AudioHotkey:
             "win": "<cmd>",
         }
 
-        # Build pynput HotKey combination string (e.g. "<ctrl>+<shift>+f")
         parts = []
         valid_modifiers = []
         for mod in modifiers:
@@ -112,38 +126,45 @@ class AudioHotkey:
         parts.append(key.lower())
         hotkey_str = "+".join(parts)
 
-        # Use pynput's HotKey which handles canonical key normalization
         self.hotkey = keyboard.HotKey(
             keyboard.HotKey.parse(hotkey_str),
             self.play_audio,
         )
 
-        # Build display string for user
         modifier_names = [m.capitalize() for m in valid_modifiers]
         self.keybind_display = "+".join(modifier_names + [key.upper()])
 
     def play_audio(self):
         """Play the audio file (non-blocking, allows overlapping)"""
-        if not self.audio_cmd:
-            print("Error: no audio player available")
-            return
         try:
-            cmd = self.audio_cmd.copy()
-            # On Windows the PowerShell script receives the path via -args;
-            # on all other platforms just append the file path to the command.
             if _SYSTEM == "Windows":
-                cmd += ["-args", self.audio_file]
+                # MCI play blocks, so run in a daemon thread
+                threading.Thread(
+                    target=_win_play, args=(self.audio_file,), daemon=True
+                ).start()
+            elif _SYSTEM == "Darwin":
+                # afplay is always present on macOS
+                subprocess.Popen(
+                    ["afplay", self.audio_file],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
             else:
-                cmd = cmd + [self.audio_file]
-            subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                # Linux
+                if not self._linux_cmd:
+                    print("Error: no audio player available")
+                    return
+                subprocess.Popen(
+                    self._linux_cmd + [self.audio_file],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
             print(f"Playing audio: {os.path.basename(self.audio_file)}")
         except Exception as e:
             print(f"Error playing audio: {e}")
 
     def on_press(self, key):
         """Handle key press events"""
-        # canonical() normalises the key (e.g. Ctrl+F -> F) so HotKey can
-        # match it correctly regardless of which modifiers are held.
         self.hotkey.press(self._listener.canonical(key))
 
     def on_release(self, key):
@@ -153,18 +174,20 @@ class AudioHotkey:
     def run(self):
         """Start the global keyboard listener"""
         print(f"\n{'=' * 50}")
-        print(f"Audio Hotkey Player Started")
+        print("Audio Hotkey Player Started")
         print(f"{'=' * 50}")
-        print(f"Platform: {platform.system()}")
+        print(f"Platform: {_SYSTEM}")
         print(f"Hotkey: {self.keybind_display}")
         print(f"Audio file: {os.path.basename(self.audio_file)}")
         print(f"\nPress {self.keybind_display} to play audio")
-        print(f"Press Ctrl+C to stop")
+        print("Press Ctrl+C to stop")
         print(f"{'=' * 50}\n")
 
-        if platform.system() == "Darwin":
+        if _SYSTEM == "Darwin":
             print("Note: On macOS, you may need to grant Accessibility permissions")
-            print("to Terminal or Python in System Preferences > Security & Privacy\n")
+            print(
+                "to Terminal or Python in System Preferences > Security & Privacy\n"
+            )
 
         with keyboard.Listener(
             on_press=self.on_press, on_release=self.on_release

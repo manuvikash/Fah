@@ -10,7 +10,7 @@ $ConfigDir = Join-Path $env:APPDATA "fah"
 if ($PSScriptRoot -and (Test-Path (Join-Path $PSScriptRoot "pyproject.toml"))) {
     $ProjectDir = $PSScriptRoot
 } else {
-    # Running via irm | iex — clone the repo
+    # Running via irm | iex - clone the repo
     $ProjectDir = Join-Path $env:LOCALAPPDATA "fah"
     if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
         Write-Host "Error: git is required. Install git and retry." -ForegroundColor Red
@@ -62,7 +62,7 @@ if (-not (Test-Path $configFile)) {
     Copy-Item "config.yaml" -Destination $configFile
     Write-Host "Config copied to $configFile" -ForegroundColor Green
 } else {
-    Write-Host "Config already exists at $configFile — skipping" -ForegroundColor Yellow
+    Write-Host "Config already exists at $configFile - skipping" -ForegroundColor Yellow
 }
 
 $mp3 = Join-Path $ConfigDir "fah.mp3"
