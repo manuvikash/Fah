@@ -1,0 +1,13 @@
+# Audio Hotkey Configuration
+# Configure your global keybind and audio file here
+
+# Keybind configuration
+# Available modifiers: ctrl, alt, shift, cmd (macOS only), win (Windows only)
+# Available keys: Any letter (a-z), numbers (0-9), or function keys (f1-f12)
+keybind:
+  modifiers: ["ctrl", "shift"]  # List of modifier keys to hold
+  key: "f"                       # The main key to press
+
+# Audio file configuration
+# Path to the audio file (relative to this script or absolute path)
+audio_file: "fah.mp3"
