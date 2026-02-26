@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.backends.legacy:build"
+
+[project]
+name = "fah"
+version = "1.0.0"
+description = "Global audio hotkey player"
+requires-python = ">=3.8"
+dependencies = [
+    "pynput>=1.8",
+    "pygame>=2.6",
+    "pyyaml>=6",
+]
+
+[project.scripts]
+fah = "fah:main"
+
+[tool.setuptools.packages.find]
+where = ["."]

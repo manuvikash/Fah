@@ -2,6 +2,12 @@
 
 A cross-platform background script that plays an audio file when you press a configurable global hotkey. Works on both Windows and macOS.
 
+## Quick Install
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/manuvikash/Fah/main/install.sh | bash
+```
+
 ## Features
 
 - Global hotkey (works in any application)

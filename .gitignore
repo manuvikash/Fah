@@ -23,6 +23,7 @@ wheels/
 *.egg-info/
 .installed.cfg
 *.egg
+*.dist-info/
 
 # Virtual environments
 venv/
