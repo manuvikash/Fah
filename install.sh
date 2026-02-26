@@ -1,160 +1,88 @@
 #!/usr/bin/env bash
-# install.sh — one-liner installer for fah (Audio Hotkey Player)
-# Usage: curl -fsSL https://raw.githubusercontent.com/manuvikash/Fah/main/install.sh | bash
+# install.sh - Install fah (Audio Hotkey Player) on macOS/Linux
+# Works both locally (bash install.sh) and piped (curl ... | bash)
 
 set -e
 
-REPO="https://github.com/manuvikash/Fah"
-RAW="https://raw.githubusercontent.com/manuvikash/Fah/main"
+REPO_URL="https://github.com/manuvikash/Fah.git"
 CONFIG_DIR="$HOME/.config/fah"
 
-# ── Colours ────────────────────────────────────────────────────────────────────
-GREEN='\033[0;32m'; YELLOW='\033[1;33m'; RED='\033[0;31m'; NC='\033[0m'
-info()    { echo -e "${GREEN}[fah]${NC} $*"; }
-warn()    { echo -e "${YELLOW}[fah]${NC} $*"; }
-error()   { echo -e "${RED}[fah]${NC} $*" >&2; exit 1; }
-
-# ── OS detection ───────────────────────────────────────────────────────────────
-OS="$(uname -s)"
-case "$OS" in
-  Linux*)  PLATFORM=linux ;;
-  Darwin*) PLATFORM=macos ;;
-  *)       error "Unsupported OS: $OS" ;;
-esac
-info "Detected platform: $PLATFORM"
-
-# ── Python 3 ───────────────────────────────────────────────────────────────────
-if ! command -v python3 &>/dev/null; then
-  error "Python 3 is required but not found. Install it from https://python.org"
-fi
-info "Python 3 found: $(python3 --version)"
-
-# ── Ensure Python 3.12 (pygame wheels are guaranteed for 3.12) ─────────────────
-ensure_python312() {
-  if command -v python3.12 &>/dev/null; then
-    info "Python 3.12 found: $(python3.12 --version)"
-    return
-  fi
-  warn "Python 3.12 not found — installing..."
-  if [[ "$PLATFORM" == "macos" ]] && command -v brew &>/dev/null; then
-    brew install python@3.12
-  elif [[ "$PLATFORM" == "linux" ]] && command -v apt-get &>/dev/null; then
-    sudo apt-get install -y python3.12
-  else
-    error "Could not install Python 3.12 automatically. Install it from https://python.org and re-run."
-  fi
-}
-ensure_python312
-PIPX_PYTHON="python3.12"
-
-# ── pipx ───────────────────────────────────────────────────────────────────────
-ensure_pipx() {
-  if command -v pipx &>/dev/null; then
-    info "pipx already installed: $(pipx --version)"
-    return
-  fi
-  info "Installing pipx..."
-  if [[ "$PLATFORM" == "macos" ]] && command -v brew &>/dev/null; then
-    brew install pipx
-  elif [[ "$PLATFORM" == "linux" ]] && command -v apt-get &>/dev/null; then
-    sudo apt-get install -y pipx 2>/dev/null || python3 -m pip install --user pipx
-  else
-    python3 -m pip install --user pipx
-  fi
-  # Ensure pipx bin dir is on PATH for this session
-  export PATH="$HOME/.local/bin:$PATH"
-  python3 -m pipx ensurepath --force &>/dev/null || true
-}
-ensure_pipx
-
-# ── Install / upgrade fah ──────────────────────────────────────────────────────
-if pipx list 2>/dev/null | grep -q "package fah"; then
-  info "Upgrading fah..."
-  pipx upgrade fah --pip-args="--prefer-binary"
+# ── Detect local vs piped execution ───────────────────────────────────────────
+SCRIPT_SOURCE="${BASH_SOURCE[0]:-}"
+if [ -n "$SCRIPT_SOURCE" ] && [ -f "$SCRIPT_SOURCE" ] && \
+   [ -f "$(dirname "$SCRIPT_SOURCE")/pyproject.toml" ]; then
+    PROJECT_DIR="$(cd "$(dirname "$SCRIPT_SOURCE")" && pwd)"
 else
-  info "Installing fah via pipx..."
-  pipx install --python "$PIPX_PYTHON" --pip-args="--prefer-binary" "git+${REPO}.git"
+    # Running via curl | bash — clone the repo
+    PROJECT_DIR="$HOME/.local/share/fah"
+    if ! command -v git &>/dev/null; then
+        echo "Error: git is required. Install git and retry."
+        exit 1
+    fi
+    if [ -d "$PROJECT_DIR/.git" ]; then
+        echo "Updating fah..."
+        git -C "$PROJECT_DIR" pull --ff-only --quiet
+    else
+        rm -rf "$PROJECT_DIR"
+        echo "Cloning fah into $PROJECT_DIR..."
+        git clone --depth 1 "$REPO_URL" "$PROJECT_DIR"
+    fi
 fi
 
-# ── Config directory ───────────────────────────────────────────────────────────
+cd "$PROJECT_DIR"
+
+# ── Find Python 3 ─────────────────────────────────────────────────────────────
+PY=""
+for cmd in python3 python; do
+    if command -v "$cmd" &>/dev/null && "$cmd" --version 2>&1 | grep -q "Python 3"; then
+        PY="$cmd"; break
+    fi
+done
+if [ -z "$PY" ]; then
+    echo "Error: Python 3 not found. Install from https://python.org"
+    exit 1
+fi
+echo "Found $($PY --version 2>&1)"
+
+# ── Create virtual environment ─────────────────────────────────────────────────
+if [ ! -d .venv ]; then
+    echo "Creating virtual environment..."
+    $PY -m venv .venv
+fi
+
+# ── Install package into venv ──────────────────────────────────────────────────
+echo "Installing dependencies..."
+.venv/bin/pip install --quiet -e .
+
+# ── Set up config directory ────────────────────────────────────────────────────
 mkdir -p "$CONFIG_DIR"
 
-# Download config.yaml only if it doesn't exist (preserve user edits)
-if [[ ! -f "$CONFIG_DIR/config.yaml" ]]; then
-  info "Downloading default config.yaml → $CONFIG_DIR/config.yaml"
-  curl -fsSL "$RAW/config.yaml" -o "$CONFIG_DIR/config.yaml"
+if [ ! -f "$CONFIG_DIR/config.yaml" ]; then
+    cp config.yaml "$CONFIG_DIR/"
+    echo "Config copied to $CONFIG_DIR/config.yaml"
 else
-  warn "config.yaml already exists — skipping (edit it at $CONFIG_DIR/config.yaml)"
+    echo "Config already exists at $CONFIG_DIR/config.yaml — skipping"
 fi
 
-# Download fah.mp3 only if it doesn't exist
-if [[ ! -f "$CONFIG_DIR/fah.mp3" ]]; then
-  info "Downloading fah.mp3 → $CONFIG_DIR/fah.mp3"
-  curl -fsSL "$RAW/fah.mp3" -o "$CONFIG_DIR/fah.mp3"
-else
-  warn "fah.mp3 already exists — skipping"
+if [ ! -f "$CONFIG_DIR/fah.mp3" ] && [ -f fah.mp3 ]; then
+    cp fah.mp3 "$CONFIG_DIR/"
+    echo "Audio copied to $CONFIG_DIR/fah.mp3"
+elif [ ! -f "$CONFIG_DIR/fah.mp3" ]; then
+    echo "Place your audio file at: $CONFIG_DIR/fah.mp3"
 fi
 
-# ── Autostart ──────────────────────────────────────────────────────────────────
-FAH_BIN="$(command -v fah 2>/dev/null || echo "$HOME/.local/bin/fah")"
-
-setup_autostart_linux() {
-  local desktop_dir="$HOME/.config/autostart"
-  mkdir -p "$desktop_dir"
-  cat > "$desktop_dir/fah.desktop" <<EOF
-[Desktop Entry]
-Type=Application
-Name=Fah Audio Hotkey
-Exec=$FAH_BIN
-Hidden=false
-NoDisplay=false
-X-GNOME-Autostart-enabled=true
-EOF
-  info "Autostart enabled → $desktop_dir/fah.desktop"
-}
-
-setup_autostart_macos() {
-  local plist="$HOME/Library/LaunchAgents/com.manuvikash.fah.plist"
-  cat > "$plist" <<EOF
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-  <key>Label</key>
-  <string>com.manuvikash.fah</string>
-  <key>ProgramArguments</key>
-  <array>
-    <string>$FAH_BIN</string>
-  </array>
-  <key>RunAtLoad</key>
-  <true/>
-  <key>KeepAlive</key>
-  <true/>
-</dict>
-</plist>
-EOF
-  launchctl load "$plist" 2>/dev/null || true
-  info "Autostart enabled → $plist"
-}
-
-echo ""
-read -r -p "$(echo -e "${YELLOW}Set up fah to start automatically on login? [y/N]:${NC} ")" autostart_choice </dev/tty
-if [[ "$autostart_choice" =~ ^[Yy]$ ]]; then
-  if [[ "$PLATFORM" == "linux" ]]; then
-    setup_autostart_linux
-  else
-    setup_autostart_macos
-  fi
-else
-  info "Skipping autostart."
-fi
+# ── Symlink for PATH access ───────────────────────────────────────────────────
+mkdir -p "$HOME/.local/bin"
+ln -sf "$PROJECT_DIR/.venv/bin/fah" "$HOME/.local/bin/fah"
 
 # ── Done ───────────────────────────────────────────────────────────────────────
 echo ""
-echo -e "${GREEN}✓ fah installed successfully!${NC}"
-echo ""
-echo "  Run now:     fah"
-echo "  Edit config: $CONFIG_DIR/config.yaml"
-echo "  Audio file:  $CONFIG_DIR/fah.mp3"
-echo ""
-warn "If 'fah' is not found, restart your shell or run: export PATH=\"\$HOME/.local/bin:\$PATH\""
+echo "Install complete!"
+echo "  Run:    fah  (or $PROJECT_DIR/start_mac.sh)"
+echo "  Config: $CONFIG_DIR/config.yaml"
+echo "  Audio:  $CONFIG_DIR/fah.mp3"
+if ! echo "$PATH" | grep -q "$HOME/.local/bin"; then
+    echo ""
+    echo "Add ~/.local/bin to PATH if 'fah' is not found:"
+    echo "  export PATH=\"\$HOME/.local/bin:\$PATH\""
+fi
