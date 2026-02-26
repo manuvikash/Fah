@@ -120,7 +120,7 @@ EOF
 }
 
 echo ""
-read -r -p "$(echo -e "${YELLOW}Set up fah to start automatically on login? [y/N]:${NC} ")" autostart_choice
+read -r -p "$(echo -e "${YELLOW}Set up fah to start automatically on login? [y/N]:${NC} ")" autostart_choice </dev/tty
 if [[ "$autostart_choice" =~ ^[Yy]$ ]]; then
   if [[ "$PLATFORM" == "linux" ]]; then
     setup_autostart_linux
