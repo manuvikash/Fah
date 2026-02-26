@@ -52,10 +52,10 @@ ensure_pipx
 # ── Install / upgrade fah ──────────────────────────────────────────────────────
 if pipx list 2>/dev/null | grep -q "package fah"; then
   info "Upgrading fah..."
-  pipx upgrade fah
+  pipx upgrade fah --pip-args="--prefer-binary"
 else
   info "Installing fah via pipx..."
-  pipx install "git+${REPO}.git"
+  pipx install --pip-args="--prefer-binary" "git+${REPO}.git"
 fi
 
 # ── Config directory ───────────────────────────────────────────────────────────
