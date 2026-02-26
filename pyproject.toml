@@ -9,7 +9,6 @@ description = "Global audio hotkey player"
 requires-python = ">=3.8"
 dependencies = [
     "pynput>=1.8",
-    "pygame>=2.6",
     "pyyaml>=6",
 ]
 

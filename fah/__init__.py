@@ -8,11 +8,17 @@ import os
 import sys
 import yaml
 import platform
+import subprocess
 from pathlib import Path
 from pynput import keyboard
-from pygame import mixer
 
-CONFIG_DIR = Path.home() / ".config" / "fah"
+_SYSTEM = platform.system()
+
+# Config lives in the right place per OS
+if _SYSTEM == "Windows":
+    CONFIG_DIR = Path(os.environ.get("APPDATA", Path.home())) / "fah"
+else:
+    CONFIG_DIR = Path.home() / ".config" / "fah"
 
 
 class AudioHotkey:
@@ -38,25 +44,47 @@ class AudioHotkey:
             sys.exit(1)
 
     def setup_audio(self):
-        """Initialize pygame mixer for audio playback"""
-        try:
-            mixer.init()
-            audio_file = self.config.get("audio_file", "fah.mp3")
+        """Resolve the audio file and detect the system player"""
+        audio_file = self.config.get("audio_file", "fah.mp3")
 
-            # Resolve relative paths against ~/.config/fah/
-            if not os.path.isabs(audio_file):
-                audio_file = str(CONFIG_DIR / audio_file)
+        if not os.path.isabs(audio_file):
+            audio_file = str(CONFIG_DIR / audio_file)
 
-            if not os.path.exists(audio_file):
-                print(f"Error: Audio file '{audio_file}' not found!")
-                print(f"Place your audio file at: {CONFIG_DIR / 'fah.mp3'}")
-                sys.exit(1)
-
-            self.audio_file = audio_file
-            print(f"Audio file loaded: {audio_file}")
-        except Exception as e:
-            print(f"Error initializing audio: {e}")
+        if not os.path.exists(audio_file):
+            print(f"Error: Audio file '{audio_file}' not found!")
+            print(f"Place your audio file at: {CONFIG_DIR / 'fah.mp3'}")
             sys.exit(1)
+
+        self.audio_file = audio_file
+        self.audio_cmd = self._find_audio_player()
+        print(f"Audio file loaded: {audio_file}")
+
+    def _find_audio_player(self):
+        """Return the command list used to play a file on this platform"""
+        if _SYSTEM == "Darwin":
+            return ["afplay"]  # always present on macOS
+        if _SYSTEM == "Windows":
+            # PowerShell MediaPlayer — no extra installs, supports MP3
+            return [
+                "powershell", "-noprofile", "-windowstyle", "hidden", "-c",
+                "Add-Type -AssemblyName presentationCore;"
+                "$m=[Windows.Media.MediaPlayer]::new();"
+                "$m.Open([uri]::new($args[0]));"
+                "$m.Play();"
+                "Start-Sleep -s 60",
+            ]
+        # Linux: first available player wins
+        for player, extra in [
+            ("paplay", []),
+            ("aplay",  []),
+            ("ffplay", ["-nodisp", "-autoexit"]),
+            ("mpg123", []),
+            ("mpv",    ["--no-video"]),
+        ]:
+            if subprocess.run(["which", player], capture_output=True).returncode == 0:
+                return [player] + extra
+        print("Warning: no audio player found (install paplay, aplay, or ffplay)")
+        return None
 
     def parse_keybind(self):
         """Parse the keybind configuration"""
@@ -96,9 +124,18 @@ class AudioHotkey:
 
     def play_audio(self):
         """Play the audio file (non-blocking, allows overlapping)"""
+        if not self.audio_cmd:
+            print("Error: no audio player available")
+            return
         try:
-            sound = mixer.Sound(self.audio_file)
-            sound.play()
+            cmd = self.audio_cmd.copy()
+            # On Windows the PowerShell script receives the path via -args;
+            # on all other platforms just append the file path to the command.
+            if _SYSTEM == "Windows":
+                cmd += ["-args", self.audio_file]
+            else:
+                cmd = cmd + [self.audio_file]
+            subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             print(f"Playing audio: {os.path.basename(self.audio_file)}")
         except Exception as e:
             print(f"Error playing audio: {e}")

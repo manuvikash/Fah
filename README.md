@@ -1,11 +1,17 @@
 # Audio Hotkey Player
 
-A cross-platform background script that plays an audio file when you press a configurable global hotkey. Works on both Windows and macOS.
+A cross-platform background script that plays an audio file when you press a configurable global hotkey. Works on Windows, macOS, and Linux.
 
 ## Quick Install
 
+**macOS / Linux**
 ```bash
 curl -fsSL https://raw.githubusercontent.com/manuvikash/Fah/main/install.sh | bash
+```
+
+**Windows** (PowerShell)
+```powershell
+irm https://raw.githubusercontent.com/manuvikash/Fah/main/install.ps1 | iex
 ```
 
 ## Features
