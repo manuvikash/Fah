@@ -5,7 +5,7 @@
 # Available modifiers: ctrl, alt, shift, cmd (macOS only), win (Windows only)
 # Available keys: Any letter (a-z), numbers (0-9), or function keys (f1-f12)
 keybind:
-  modifiers: ["ctrl", "shift"]  # List of modifier keys to hold
+  modifiers: ["ctrl", "shift", "alt"]  # List of modifier keys to hold
   key: "f"                       # The main key to press
 
 # Audio file configuration

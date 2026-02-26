@@ -17,7 +17,6 @@ class AudioHotkey:
     def __init__(self, config_path="config.yaml"):
         """Initialize the audio hotkey listener"""
         self.config = self.load_config(config_path)
-        self.current_keys = set()
         self.setup_audio()
         self.parse_keybind()
 
@@ -63,38 +62,35 @@ class AudioHotkey:
         modifiers = keybind_config.get("modifiers", [])
         key = keybind_config.get("key", "f")
 
-        # Map string modifiers to pynput Key objects
-        self.modifier_map = {
-            "ctrl": keyboard.Key.ctrl_l,
-            "alt": keyboard.Key.alt_l,
-            "shift": keyboard.Key.shift_l,
-            "cmd": keyboard.Key.cmd if platform.system() == "Darwin" else None,
-            "win": keyboard.Key.cmd if platform.system() == "Windows" else None,
+        # Map config modifier names to pynput hotkey string tokens
+        modifier_token_map = {
+            "ctrl": "<ctrl>",
+            "alt": "<alt>",
+            "shift": "<shift>",
+            "cmd": "<cmd>",
+            "win": "<cmd>",
         }
 
-        # Build the set of required modifiers
-        self.required_modifiers = set()
+        # Build pynput HotKey combination string (e.g. "<ctrl>+<shift>+f")
+        parts = []
+        valid_modifiers = []
         for mod in modifiers:
             mod_lower = mod.lower()
-            if mod_lower in self.modifier_map:
-                key_obj = self.modifier_map[mod_lower]
-                if key_obj:  # Only add if valid for this platform
-                    self.required_modifiers.add(key_obj)
-                    # Also add the right version of the key
-                    if mod_lower == "ctrl":
-                        self.required_modifiers.add(keyboard.Key.ctrl_r)
-                    elif mod_lower == "alt":
-                        self.required_modifiers.add(keyboard.Key.alt_r)
-                    elif mod_lower == "shift":
-                        self.required_modifiers.add(keyboard.Key.shift_r)
+            if mod_lower in modifier_token_map:
+                parts.append(modifier_token_map[mod_lower])
+                valid_modifiers.append(mod)
+        parts.append(key.lower())
+        hotkey_str = "+".join(parts)
 
-        # Store the main key
-        self.main_key = key.lower()
+        # Use pynput's HotKey which handles canonical key normalization
+        self.hotkey = keyboard.HotKey(
+            keyboard.HotKey.parse(hotkey_str),
+            self.play_audio,
+        )
 
         # Build display string for user
-        modifier_names = [m.capitalize() for m in modifiers]
-        keybind_display = "+".join(modifier_names + [key.upper()])
-        self.keybind_display = keybind_display
+        modifier_names = [m.capitalize() for m in valid_modifiers]
+        self.keybind_display = "+".join(modifier_names + [key.upper()])
 
     def play_audio(self):
         """Play the audio file (non-blocking, allows overlapping)"""
@@ -106,65 +102,15 @@ class AudioHotkey:
         except Exception as e:
             print(f"Error playing audio: {e}")
 
-    def check_hotkey(self):
-        """Check if the hotkey combination is currently pressed"""
-        # Check if at least one variant of each required modifier is pressed
-        modifiers_pressed = any(
-            mod in self.current_keys for mod in self.required_modifiers
-        )
-
-        # If we have required modifiers, check if they're all pressed
-        if self.required_modifiers:
-            # For each modifier type, check if at least one variant is pressed
-            modifier_types = {}
-            for mod in self.required_modifiers:
-                if mod in [keyboard.Key.ctrl_l, keyboard.Key.ctrl_r]:
-                    modifier_types["ctrl"] = (
-                        modifier_types.get("ctrl", False) or mod in self.current_keys
-                    )
-                elif mod in [keyboard.Key.alt_l, keyboard.Key.alt_r]:
-                    modifier_types["alt"] = (
-                        modifier_types.get("alt", False) or mod in self.current_keys
-                    )
-                elif mod in [keyboard.Key.shift_l, keyboard.Key.shift_r]:
-                    modifier_types["shift"] = (
-                        modifier_types.get("shift", False) or mod in self.current_keys
-                    )
-                elif mod == keyboard.Key.cmd:
-                    modifier_types["cmd"] = (
-                        modifier_types.get("cmd", False) or mod in self.current_keys
-                    )
-
-            # All required modifier types must be pressed
-            if not all(modifier_types.values()):
-                return False
-
-        # Check if the main key is pressed
-        for key in self.current_keys:
-            key_char = None
-            if hasattr(key, "char") and key.char:
-                key_char = key.char.lower()
-            elif hasattr(key, "name"):
-                key_char = key.name.lower()
-
-            if key_char == self.main_key:
-                return True
-
-        return False
-
     def on_press(self, key):
         """Handle key press events"""
-        self.current_keys.add(key)
-
-        if self.check_hotkey():
-            self.play_audio()
+        # canonical() normalises the key (e.g. Ctrl+F -> F) so HotKey can
+        # match it correctly regardless of which modifiers are held.
+        self.hotkey.press(self._listener.canonical(key))
 
     def on_release(self, key):
         """Handle key release events"""
-        try:
-            self.current_keys.discard(key)
-        except KeyError:
-            pass
+        self.hotkey.release(self._listener.canonical(key))
 
     def run(self):
         """Start the global keyboard listener"""
@@ -187,8 +133,12 @@ class AudioHotkey:
         with keyboard.Listener(
             on_press=self.on_press, on_release=self.on_release
         ) as listener:
+            self._listener = listener  # needed for canonical() in callbacks
             try:
-                listener.join()
+                # join() with a timeout loops so the main thread stays
+                # responsive to KeyboardInterrupt (Ctrl+C) on Linux.
+                while listener.is_alive():
+                    listener.join(timeout=1.0)
             except KeyboardInterrupt:
                 print("\n\nStopping Audio Hotkey Player...")
                 print("Goodbye!")
